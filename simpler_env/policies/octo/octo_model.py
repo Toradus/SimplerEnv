@@ -16,6 +16,8 @@ from simpler_env.utils.action.action_ensemble import ActionEnsembler
 class OctoInference:
     def __init__(
         self,
+        model: Optional[OctoModel] = None,
+        dataset_id: Optional[str] = None,
         model_type: str = "octo-base",
         policy_setup: str = "widowx_bridge",
         horizon: int = 2,
@@ -27,20 +29,27 @@ class OctoInference:
     ) -> None:
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         if policy_setup == "widowx_bridge":
-            dataset_id = "bridge_dataset"
+            dataset_id = "bridge_dataset" if dataset_id is None else dataset_id
             action_ensemble = True
             action_ensemble_temp = 0.0
             self.sticky_gripper_num_repeat = 1
         elif policy_setup == "google_robot":
-            dataset_id = "fractal20220817_data"
+            dataset_id = "fractal20220817_data" if dataset_id is None else dataset_id
             action_ensemble = True
             action_ensemble_temp = 0.0
             self.sticky_gripper_num_repeat = 15
         else:
             raise NotImplementedError(f"Policy setup {policy_setup} not supported for octo models.")
         self.policy_setup = policy_setup
+        self.dataset_id = dataset_id
 
-        if model_type in ["octo-base", "octo-small"]:
+        if model is not None:
+            self.tokenizer, self.tokenizer_kwargs = None, None
+            self.model = model
+            self.action_mean = self.model.dataset_statistics[dataset_id]["action"]["mean"]
+            self.action_std = self.model.dataset_statistics[dataset_id]["action"]["std"]
+            self.automatic_task_creation = True
+        elif model_type in ["octo-base", "octo-small"]:
             # released huggingface octo models
             self.model_type = f"hf://rail-berkeley/{model_type}"
             self.tokenizer, self.tokenizer_kwargs = None, None
@@ -210,8 +219,14 @@ class OctoInference:
         # print("octo local rng", self.rng, key)
 
         if self.automatic_task_creation:
-            input_observation = {"image_primary": images, "pad_mask": pad_mask}
-            norm_raw_actions = self.model.sample_actions(input_observation, self.task, rng=key)
+            input_observation = {"image_primary": images, "timestep_pad_mask": pad_mask}
+            raw_actions = self.model.sample_actions(
+                input_observation,
+                self.task,
+                rng=key,
+                unnormalization_statistics=self.model.dataset_statistics[self.dataset_id]["action"]
+            )
+            raw_actions = raw_actions[0]  # remove batch, becoming (action_pred_horizon, action_dim)
         else:
             input_observation = {"image_primary": images, "timestep_pad_mask": pad_mask}
             input_observation = {
@@ -220,14 +235,15 @@ class OctoInference:
                 "rng": np.concatenate([self.rng, key]),
             }
             norm_raw_actions = self.model.lc_ws2(input_observation)[:, :, :7]
-        norm_raw_actions = norm_raw_actions[0]  # remove batch, becoming (action_pred_horizon, action_dim)
-        assert norm_raw_actions.shape == (self.pred_action_horizon, 7)
+            norm_raw_actions = norm_raw_actions[0]  # remove batch, becoming (action_pred_horizon, action_dim)
 
+            raw_actions = norm_raw_actions * self.action_std[None] + self.action_mean[None]
+
+        assert raw_actions.shape == (self.pred_action_horizon, 7)
         if self.action_ensemble:
-            norm_raw_actions = self.action_ensembler.ensemble_action(norm_raw_actions)
-            norm_raw_actions = norm_raw_actions[None]  # [1, 7]
+            raw_actions = self.action_ensembler.ensemble_action(raw_actions)
+            raw_actions = raw_actions[None]  # [1, 7]
 
-        raw_actions = norm_raw_actions * self.action_std[None] + self.action_mean[None]
         raw_action = {
             "world_vector": np.array(raw_actions[0, :3]),
             "rotation_delta": np.array(raw_actions[0, 3:6]),
