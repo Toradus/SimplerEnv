@@ -4,28 +4,36 @@ from typing import Optional, Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
+import torch
 from transforms3d.euler import euler2axangle
 import torch.nn as nn
+import tensorflow_hub as hub
+from transformers import CLIPTokenizer
 
 
 class UhaInference:
     def __init__(
         self,
         agent: nn.Module,
-        lang_embed: str = "https://tfhub.dev/google/universal-sentence-encoder-large/5",
-        image_size: int = 320,
+        lang_embed: str = "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
+        image_size: int = 224,
+        pred_action_horizon: int = 10,
         action_scale: float = 1.0,
-        policy_setup: str = "google_robot",
+        policy_setup: str = "widowx_bridge",
+        device: torch.device = torch.device("cpu"),
     ) -> None:
-        # self.lang_embed_model = hub.load(https://tfhub.dev/google/universal-sentence-encoder-large/5)
-        self.lang_embed_model = lang_embed
+        if lang_embed == "openai/clip-vit-base-patch32":
+            self.lang_embed_model = CLIPTokenizer.from_pretrained(lang_embed)
+        else:
+            self.lang_embed_model = hub.load(lang_embed)
         
         self.image_size = image_size
         self.action_scale = action_scale
+        self.agent = agent
+        self.pred_action_horizon = pred_action_horizon
+        self.device = device
 
         self.observation = None
-        self.tfa_time_step = None
-        self.policy_state = None
         self.task_description = None
         self.task_description_embedding = None
 
@@ -61,17 +69,17 @@ class UhaInference:
         )
 
     def _unnormalize_action_widowx_bridge(self, action: dict[str, np.ndarray | tf.Tensor]) -> dict[str, np.ndarray]:
-        action["world_vector"] = self._rescale_action_with_bound(
-            action["world_vector"],
-            low=-1.75,
-            high=1.75,
+        action[:, :3] = self._rescale_action_with_bound(
+            action[:, :3],
+            low=-1.0,
+            high=1.0,
             post_scaling_max=0.05,
             post_scaling_min=-0.05,
         )
-        action["rotation_delta"] = self._rescale_action_with_bound(
-            action["rotation_delta"],
-            low=-1.4,
-            high=1.4,
+        action[:, 3:6] = self._rescale_action_with_bound(
+            action[:, 3:6],
+            low=-1.0,
+            high=1.0,
             post_scaling_max=0.25,
             post_scaling_min=-0.25,
         )
@@ -84,54 +92,23 @@ class UhaInference:
             method="lanczos3",
             antialias=True,
         )
-        image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.uint8).numpy()
+        image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.float32).numpy()
         return image
 
     def _initialize_task_description(self, task_description: Optional[str] = None) -> None:
         if task_description is not None:
             self.task_description = task_description
-            self.task_description_embedding = self.lang_embed_model([task_description])[0]
+            self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
+            self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0)
+            self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0)
         else:
             self.task_description = ""
             self.task_description_embedding = tf.zeros((512,), dtype=tf.float32)
 
     def reset(self, task_description: str) -> None:
-        self._initialize_model()
         self._initialize_task_description(task_description)
 
-    @staticmethod
-    def _small_action_filter_google_robot(raw_action: dict[str, np.ndarray | tf.Tensor], arm_movement: bool = False, gripper: bool = True) -> dict[str, np.ndarray | tf.Tensor]:
-        # small action filtering for google robot
-        if arm_movement:
-            raw_action["world_vector"] = tf.where(
-                tf.abs(raw_action["world_vector"]) < 5e-3,
-                tf.zeros_like(raw_action["world_vector"]),
-                raw_action["world_vector"],
-            )
-            raw_action["rotation_delta"] = tf.where(
-                tf.abs(raw_action["rotation_delta"]) < 5e-3,
-                tf.zeros_like(raw_action["rotation_delta"]),
-                raw_action["rotation_delta"],
-            )
-            raw_action["base_displacement_vector"] = tf.where(
-                raw_action["base_displacement_vector"] < 5e-3,
-                tf.zeros_like(raw_action["base_displacement_vector"]),
-                raw_action["base_displacement_vector"],
-            )
-            raw_action["base_displacement_vertical_rotation"] = tf.where(
-                raw_action["base_displacement_vertical_rotation"] < 1e-2,
-                tf.zeros_like(raw_action["base_displacement_vertical_rotation"]),
-                raw_action["base_displacement_vertical_rotation"],
-            )
-        if gripper:
-            raw_action["gripper_closedness_action"] = tf.where(
-                tf.abs(raw_action["gripper_closedness_action"]) < 1e-2,
-                tf.zeros_like(raw_action["gripper_closedness_action"]),
-                raw_action["gripper_closedness_action"],
-            )
-        return raw_action
-
-    def step(self, image: np.ndarray, task_description: Optional[str] = None) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    def step(self, image: np.ndarray, task_description: Optional[str] = None, *args, **kwargs) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """
         Input:
             image: np.ndarray of shape (H, W, 3), uint8
@@ -146,120 +123,133 @@ class UhaInference:
         """
         if task_description is not None:
             if task_description != self.task_description:
-                # task description has changed; update language embedding
-                # self._initialize_task_description(task_description)
+                # task description has changed; reset the policy state
                 self.reset(task_description)
-        
-        assert image.dtype == np.uint8
-        image = self._resize_image(image)
-        self.observation["image"] = image
-        self.observation["natural_language_embedding"] = self.task_description_embedding
 
-        # obtain (unnormalized and filtered) raw action from model forward pass
-        self.tfa_time_step = ts.transition(self.observation, reward=np.zeros((), dtype=np.float32))
-        policy_step = self.tfa_policy.action(self.tfa_time_step, self.policy_state)
-        raw_action = policy_step.action
-        if self.policy_setup == "google_robot":
-            raw_action = self._small_action_filter_google_robot(raw_action, arm_movement=False, gripper=True)
-        if self.unnormalize_action:
-            raw_action = self.unnormalize_action_fxn(raw_action)
-        for k in raw_action.keys():
-            raw_action[k] = np.asarray(raw_action[k])
+        assert image.dtype == np.uint8
+        image = torch.from_numpy(np.moveaxis(self._resize_image(image), -1, 0)).unsqueeze(0).unsqueeze(0).to(device=self.device)
+        image2 = torch.ones_like(image)
+
+        input_observation = {"image_primary": image, "image_wrist": image2}
+        input_observation = {
+            "observation": input_observation,
+            "task": {"language_instruction": self.task_description_embedding}
+        }
+        unscaled_raw_actions = self.agent(input_observation)[0][:, :, :7].cpu()
+        unscaled_raw_actions = unscaled_raw_actions[0]  # remove batch, becoming (action_pred_horizon, action_dim)
+
+        raw_actions = self.unnormalize_action_fxn(unscaled_raw_actions)
+
+        assert raw_actions.shape == (self.pred_action_horizon, 7)
+
+        raw_action = {
+            "world_vector": np.array(raw_actions[:, :3]),
+            "rotation_delta": np.array(raw_actions[:, 3:6]),
+            "open_gripper": np.array(raw_actions[:, 6:7]),  # range [0, 1]; 1 = open; 0 = close
+        }
 
         # process raw_action to obtain the action to be sent to the maniskill2 environment
         action = {}
-        action["world_vector"] = np.asarray(raw_action["world_vector"], dtype=np.float64) * self.action_scale
-        if self.action_rotation_mode == "axis_angle":
-            action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
-            action_rotation_angle = np.linalg.norm(action_rotation_delta)
-            action_rotation_ax = (
-                action_rotation_delta / action_rotation_angle
-                if action_rotation_angle > 1e-6
-                else np.array([0.0, 1.0, 0.0])
-            )
-            action["rot_axangle"] = action_rotation_ax * action_rotation_angle * self.action_scale
-        elif self.action_rotation_mode in ["rpy", "ypr", "pry"]:
-            if self.action_rotation_mode == "rpy":
-                roll, pitch, yaw = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
-            elif self.action_rotation_mode == "ypr":
-                yaw, pitch, roll = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
-            elif self.action_rotation_mode == "pry":
-                pitch, roll, yaw = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
+        action["world_vector"] = raw_action["world_vector"] * self.action_scale
+        action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
+        action["rot_axangle"] = []
+        for rotation in action_rotation_delta:
+            roll, pitch, yaw = rotation
             action_rotation_ax, action_rotation_angle = euler2axangle(roll, pitch, yaw)
-            action["rot_axangle"] = action_rotation_ax * action_rotation_angle * self.action_scale
-        else:
-            raise NotImplementedError()
+            action_rotation_axangle = action_rotation_ax * action_rotation_angle
+            action["rot_axangle"].append(action_rotation_axangle * self.action_scale)
 
-        raw_gripper_closedness = raw_action["gripper_closedness_action"]
-        if self.invert_gripper_action:
-            # rt1 policy output is uniformized such that -1 is open gripper, 1 is close gripper;
-            # thus we need to invert the rt1 output gripper action for some embodiments like WidowX, since for these embodiments -1 is close gripper, 1 is open gripper
-            raw_gripper_closedness = -raw_gripper_closedness
+        action["rot_axangle"] = np.asarray(action["rot_axangle"], dtype=np.float64)
+
         if self.policy_setup == "google_robot":
-            # gripper controller: pd_joint_target_delta_pos_interpolate_by_planner; raw_gripper_closedness has range of [-1, 1]
-            action["gripper"] = np.asarray(raw_gripper_closedness, dtype=np.float64)
+            action["gripper"] = []
+            for current_gripper_action in raw_action["open_gripper"]:
+
+                # This is one of the ways to implement gripper actions; we use an alternative implementation below for consistency with real
+                # gripper_close_commanded = (current_gripper_action < 0.5)
+                # relative_gripper_action = 1 if gripper_close_commanded else -1 # google robot 1 = close; -1 = open
+
+                # # if action represents a change in gripper state and gripper is not already sticky, trigger sticky gripper
+                # if gripper_close_commanded != self.gripper_is_closed and not self.sticky_action_is_on:
+                #     self.sticky_action_is_on = True
+                #     self.sticky_gripper_action = relative_gripper_action
+
+                # if self.sticky_action_is_on:
+                #     self.gripper_action_repeat += 1
+                #     relative_gripper_action = self.sticky_gripper_action
+
+                # if self.gripper_action_repeat == self.sticky_gripper_num_repeat:
+                #     self.gripper_is_closed = (self.sticky_gripper_action > 0)
+                #     self.sticky_action_is_on = False
+                #     self.gripper_action_repeat = 0
+
+                # action['gripper'] = np.array([relative_gripper_action])
+
+                # alternative implementation
+                if self.previous_gripper_action is None:
+                    relative_gripper_action = np.array([0])
+                else:
+                    relative_gripper_action = (
+                        self.previous_gripper_action - current_gripper_action
+                    )  # google robot 1 = close; -1 = open
+                self.previous_gripper_action = current_gripper_action
+
+                if np.abs(relative_gripper_action) > 0.5 and self.sticky_action_is_on is False:
+                    self.sticky_action_is_on = True
+                    self.sticky_gripper_action = relative_gripper_action
+
+                if self.sticky_action_is_on:
+                    self.gripper_action_repeat += 1
+                    relative_gripper_action = self.sticky_gripper_action
+
+                if self.gripper_action_repeat == self.sticky_gripper_num_repeat:
+                    self.sticky_action_is_on = False
+                    self.gripper_action_repeat = 0
+                    self.sticky_gripper_action = 0.0
+
+                action["gripper"].append(relative_gripper_action)
+            
+            action["gripper"] = np.asarray(action["gripper"])
+
         elif self.policy_setup == "widowx_bridge":
-            # gripper controller: pd_joint_pos; raw_gripper_closedness has range of [-1, 1]
-            action["gripper"] = np.asarray(raw_gripper_closedness, dtype=np.float64)
-            # binarize gripper action to be -1 or 1
-            action["gripper"] = 2.0 * (action["gripper"] > 0.0) - 1.0
-        else:
-            raise NotImplementedError()
+            action["gripper"] = []
+            for current_gripper_action in raw_action["open_gripper"]:
+                action["gripper"].append((
+                    2.0 * (current_gripper_action > 0.5) - 1.0
+                ))  # binarize gripper action to 1 (open) and -1 (close)
+                # self.gripper_is_closed = (action['gripper'] < 0.0)
+            action["gripper"] = np.asarray(action["gripper"])
 
-        action["terminate_episode"] = raw_action["terminate_episode"]
-
-        # update policy state
-        self.policy_state = policy_step.state
+        action["terminate_episode"] = np.array([0.0])
 
         return raw_action, action
 
     def visualize_epoch(self, predicted_raw_actions: Sequence[np.ndarray], images: Sequence[np.ndarray], save_path: str) -> None:
         images = [self._resize_image(image) for image in images]
-        predicted_action_name_to_values_over_time = defaultdict(list)
-        figure_layout = [
-            "terminate_episode_0",
-            "terminate_episode_1",
-            "terminate_episode_2",
-            "world_vector_0",
-            "world_vector_1",
-            "world_vector_2",
-            "rotation_delta_0",
-            "rotation_delta_1",
-            "rotation_delta_2",
-            "gripper_closedness_action_0",
-        ]
-        action_order = [
-            "terminate_episode",
-            "world_vector",
-            "rotation_delta",
-            "gripper_closedness_action",
-        ]
+        ACTION_DIM_LABELS = ["x", "y", "z", "roll", "pitch", "yaw", "grasp"]
 
-        for i, action in enumerate(predicted_raw_actions):
-            for action_name in action_order:
-                for action_sub_dimension in range(action[action_name].shape[0]):
-                    # print(action_name, action_sub_dimension)
-                    title = f"{action_name}_{action_sub_dimension}"
-                    predicted_action_name_to_values_over_time[title].append(
-                        predicted_raw_actions[i][action_name][action_sub_dimension]
-                    )
+        img_strip = np.concatenate(np.array(images[::3]), axis=1)
 
-        figure_layout = [["image"] * len(figure_layout), figure_layout]
-
+        # set up plt figure
+        figure_layout = [["image"] * len(ACTION_DIM_LABELS), ACTION_DIM_LABELS]
         plt.rcParams.update({"font.size": 12})
-
-        stacked = tf.concat(tf.unstack(images[::3], axis=0), 1)
-
         fig, axs = plt.subplot_mosaic(figure_layout)
         fig.set_size_inches([45, 10])
 
-        for i, (k, v) in enumerate(predicted_action_name_to_values_over_time.items()):
-            axs[k].plot(predicted_action_name_to_values_over_time[k], label="predicted action")
-            axs[k].set_title(k)
-            axs[k].set_xlabel("Time in one episode")
+        # plot actions
+        pred_actions = np.array(
+            [
+                np.concatenate([a["world_vector"], a["rotation_delta"], a["open_gripper"]], axis=-1)
+                for a in predicted_raw_actions
+            ]
+        )
+        for action_dim, action_label in enumerate(ACTION_DIM_LABELS):
+            # actions have batch, horizon, dim, in this example we just take the first action for simplicity
+            axs[action_label].plot(pred_actions[:, action_dim], label="predicted action")
+            axs[action_label].set_title(action_label)
+            axs[action_label].set_xlabel("Time in one episode")
 
-        axs["image"].imshow(stacked.numpy())
+        axs["image"].imshow(img_strip)
         axs["image"].set_xlabel("Time in one episode (subsampled)")
-
         plt.legend()
         plt.savefig(save_path)
