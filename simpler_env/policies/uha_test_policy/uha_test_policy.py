@@ -19,7 +19,7 @@ class UhaInference:
         image_size: int = 224,
         pred_action_horizon: int = 10,
         action_scale: float = 1.0,
-        policy_setup: str = "widowx_bridge",
+        policy_setup: str = "google_robot",
         device: torch.device = torch.device("cpu"),
     ) -> None:
         if lang_embed == "openai/clip-vit-base-patch32":
@@ -36,54 +36,33 @@ class UhaInference:
         self.observation = None
         self.task_description = None
         self.task_description_embedding = None
+        self.sticky_action_is_on = False
+        self.gripper_action_repeat = 0
+        self.sticky_gripper_action = 0.0
+        self.previous_gripper_action = None
 
         self.policy_setup = policy_setup
         if self.policy_setup == "google_robot":
-            self.unnormalize_action = False
-            self.unnormalize_action_fxn = None
-            self.invert_gripper_action = False
-            self.action_rotation_mode = "axis_angle"
+            self.sticky_gripper_num_repeat = 15
+            # use fractal20220817_data norm values
+            self.max_values = torch.tensor([-0.22453527510166169, -0.14820013284683228, -0.231589707583189, -0.3517994859814644, -0.4193011274933815, -0.43643461108207704, 0.0]) # p99
+            self.min_values = torch.tensor([0.17824687153100965, 0.14938379630446405, 0.21842354819178575, 0.5892666035890578, 0.35272657424211445, 0.44796681255102094, 1.0]) # p01
         elif self.policy_setup == "widowx_bridge":
-            self.unnormalize_action = True
-            self.unnormalize_action_fxn = self._unnormalize_action_widowx_bridge
-            self.invert_gripper_action = True
-            self.action_rotation_mode = "rpy"
+            self.sticky_gripper_num_repeat = 1
+            # use bridge norm values
+            self.max_values = torch.tensor([0.02911195397377009, 0.04201051414012899, 0.04071581304073327, 0.08772125840187053, 0.08282401025295247, 0.16359195709228502, 1.0]) # p99
+            self.min_values = torch.tensor([-0.029900161027908326, -0.04327958464622497, -0.02570973977446556, -0.0863340237736702, -0.09845495343208313, -0.1693541383743286, 0.0]) # p01
         else:
             raise NotImplementedError()
 
-    @staticmethod
-    def _rescale_action_with_bound(
-        actions: np.ndarray | tf.Tensor,
-        low: float,
-        high: float,
-        safety_margin: float = 0.0,
-        post_scaling_max: float = 1.0,
-        post_scaling_min: float = -1.0,
-    ) -> np.ndarray:
-        """Formula taken from https://stats.stackexchange.com/questions/281162/scale-a-number-between-a-range."""
-        resc_actions = (actions - low) / (high - low) * (post_scaling_max - post_scaling_min) + post_scaling_min
-        return np.clip(
-            resc_actions,
-            post_scaling_min + safety_margin,
-            post_scaling_max - safety_margin,
-        )
-
-    def _unnormalize_action_widowx_bridge(self, action: dict[str, np.ndarray | tf.Tensor]) -> dict[str, np.ndarray]:
-        action[:, :3] = self._rescale_action_with_bound(
-            action[:, :3],
-            low=-1.0,
-            high=1.0,
-            post_scaling_max=0.05,
-            post_scaling_min=-0.05,
-        )
-        action[:, 3:6] = self._rescale_action_with_bound(
-            action[:, 3:6],
-            low=-1.0,
-            high=1.0,
-            post_scaling_max=0.25,
-            post_scaling_min=-0.25,
-        )
-        return action
+    def rescale_to_range(self, tensor) -> torch.Tensor:
+        max_values = self.max_values.cpu()
+        min_values = self.min_values.cpu()
+        # Scale the tensor to the new range [new_min, new_max]
+        new_min = -torch.ones_like(tensor).cpu()
+        new_max = torch.ones_like(tensor).cpu()
+        rescaled_tensor = (tensor - new_min) / (new_max - new_min) * (max_values - min_values) + min_values
+        return rescaled_tensor
 
     def _resize_image(self, image: np.ndarray) -> np.ndarray:
         image = tf.image.resize(
@@ -99,8 +78,8 @@ class UhaInference:
         if task_description is not None:
             self.task_description = task_description
             self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
-            self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0)
-            self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0)
+            self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0).to(device=self.device)
+            self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0).to(device=self.device)
         else:
             self.task_description = ""
             self.task_description_embedding = tf.zeros((512,), dtype=tf.float32)
@@ -128,9 +107,10 @@ class UhaInference:
 
         assert image.dtype == np.uint8
         image = torch.from_numpy(np.moveaxis(self._resize_image(image), -1, 0)).unsqueeze(0).unsqueeze(0).to(device=self.device)
-        image2 = torch.ones_like(image)
+        # image2 = torch.ones_like(image)
 
-        input_observation = {"image_primary": image, "image_wrist": image2}
+        # input_observation = {"image_primary": image, "image_wrist": image2}
+        input_observation = {"image_primary": image}
         input_observation = {
             "observation": input_observation,
             "task": {"language_instruction": self.task_description_embedding}
@@ -138,7 +118,7 @@ class UhaInference:
         unscaled_raw_actions = self.agent(input_observation)[0][:, :, :7].cpu()
         unscaled_raw_actions = unscaled_raw_actions[0]  # remove batch, becoming (action_pred_horizon, action_dim)
 
-        raw_actions = self.unnormalize_action_fxn(unscaled_raw_actions)
+        raw_actions = self.rescale_to_range(unscaled_raw_actions)
 
         assert raw_actions.shape == (self.pred_action_horizon, 7)
 
@@ -228,7 +208,7 @@ class UhaInference:
         images = [self._resize_image(image) for image in images]
         ACTION_DIM_LABELS = ["x", "y", "z", "roll", "pitch", "yaw", "grasp"]
 
-        img_strip = np.concatenate(np.array(images[::3]), axis=1)
+        img_strip = np.concatenate(np.array(images[::3]).astype(np.int8), axis=1)
 
         # set up plt figure
         figure_layout = [["image"] * len(ACTION_DIM_LABELS), ACTION_DIM_LABELS]
@@ -239,8 +219,9 @@ class UhaInference:
         # plot actions
         pred_actions = np.array(
             [
-                np.concatenate([a["world_vector"], a["rotation_delta"], a["open_gripper"]], axis=-1)
+                np.concatenate([a["world_vector"][i], a["rotation_delta"][i], a["open_gripper"][i]], axis=-1)
                 for a in predicted_raw_actions
+                for i in range(10)
             ]
         )
         for action_dim, action_label in enumerate(ACTION_DIM_LABELS):
