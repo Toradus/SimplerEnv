@@ -45,8 +45,8 @@ class UhaInference:
         if self.policy_setup == "google_robot":
             self.sticky_gripper_num_repeat = 15
             # use fractal20220817_data norm values
-            self.max_values = torch.tensor([-0.22453527510166169, -0.14820013284683228, -0.231589707583189, -0.3517994859814644, -0.4193011274933815, -0.43643461108207704, 0.0]) # p99
-            self.min_values = torch.tensor([0.17824687153100965, 0.14938379630446405, 0.21842354819178575, 0.5892666035890578, 0.35272657424211445, 0.44796681255102094, 1.0]) # p01
+            self.max_values = torch.tensor([0.17824687153100965, 0.14938379630446405, 0.21842354819178575, 0.5892666035890578, 0.35272657424211445, 0.44796681255102094, 1.0]) # p99
+            self.min_values = torch.tensor([-0.22453527510166169, -0.14820013284683228, -0.231589707583189, -0.3517994859814644, -0.4193011274933815, -0.43643461108207704, 0.0]) # p01
         elif self.policy_setup == "widowx_bridge":
             self.sticky_gripper_num_repeat = 1
             # use bridge norm values
