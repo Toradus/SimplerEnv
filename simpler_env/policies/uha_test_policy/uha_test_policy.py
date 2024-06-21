@@ -71,7 +71,7 @@ class UhaInference:
             method="lanczos3",
             antialias=True,
         )
-        image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.float32).numpy()
+        image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.uint8).numpy()
         return image
 
     def _initialize_task_description(self, task_description: Optional[str] = None) -> None:
@@ -106,7 +106,7 @@ class UhaInference:
                 self.reset(task_description)
 
         assert image.dtype == np.uint8
-        image = torch.from_numpy(np.moveaxis(self._resize_image(image), -1, 0)).unsqueeze(0).unsqueeze(0).to(device=self.device)
+        image = torch.from_numpy(np.moveaxis(self._resize_image(image), -1, 0)).unsqueeze(0).unsqueeze(0).to(device=self.device, dtype=torch.float32)
         # image2 = torch.ones_like(image)
 
         # input_observation = {"image_primary": image, "image_wrist": image2}
@@ -204,11 +204,11 @@ class UhaInference:
 
         return raw_action, action
 
-    def visualize_epoch(self, predicted_raw_actions: Sequence[np.ndarray], images: Sequence[np.ndarray], save_path: str) -> None:
+    def visualize_epoch(self, predicted_raw_actions: Sequence[np.ndarray], images: Sequence[np.ndarray], save_path: str, wandb = None) -> None:
         images = [self._resize_image(image) for image in images]
         ACTION_DIM_LABELS = ["x", "y", "z", "roll", "pitch", "yaw", "grasp"]
 
-        img_strip = np.concatenate(np.array(images[::3]).astype(np.int8), axis=1)
+        img_strip = np.concatenate(np.array(images[::3]), axis=1)
 
         # set up plt figure
         figure_layout = [["image"] * len(ACTION_DIM_LABELS), ACTION_DIM_LABELS]
@@ -233,4 +233,7 @@ class UhaInference:
         axs["image"].imshow(img_strip)
         axs["image"].set_xlabel("Time in one episode (subsampled)")
         plt.legend()
-        plt.savefig(save_path)
+        if wandb is not None and wandb.run is not None:
+            wandb.log({"Simpler Env": plt})
+        else:
+            plt.savefig(save_path)
