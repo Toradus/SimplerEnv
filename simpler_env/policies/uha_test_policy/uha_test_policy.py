@@ -204,7 +204,7 @@ class UhaInference:
 
         return raw_action, action
 
-    def visualize_epoch(self, predicted_raw_actions: Sequence[np.ndarray], images: Sequence[np.ndarray], save_path: str, wandb = None) -> None:
+    def visualize_epoch(self, predicted_raw_actions: Sequence[np.ndarray], images: Sequence[np.ndarray], save_path: str, process_index, wandb = None) -> None:
         images = [self._resize_image(image) for image in images]
         ACTION_DIM_LABELS = ["x", "y", "z", "roll", "pitch", "yaw", "grasp"]
 
@@ -233,7 +233,9 @@ class UhaInference:
         axs["image"].imshow(img_strip)
         axs["image"].set_xlabel("Time in one episode (subsampled)")
         plt.legend()
-        if wandb is not None and wandb.run is not None:
-            wandb.log({"Simpler Env": plt})
+        if wandb is not None and wandb.run is not None and process_index is not None:
+            name = "Simpler Env " + str(process_index) + ":"
+            wandb.log({name: plt})
         else:
             plt.savefig(save_path)
+        plt.close()
