@@ -235,7 +235,7 @@ class UhaInference:
         plt.legend()
         if wandb is not None and wandb.run is not None and process_index is not None:
             name = "Simpler Env " + str(process_index) + ":"
-            wandb.log({name: plt})
+            wandb.log({name: plt}, commit=False)
         else:
             plt.savefig(save_path)
         plt.close()
