@@ -106,7 +106,7 @@ class UhaInference:
                 self.reset(task_description)
 
         assert image.dtype == np.uint8
-        image = torch.from_numpy(np.moveaxis(self._resize_image(image), -1, 0)).unsqueeze(0).unsqueeze(0).to(device=self.device, dtype=torch.float32)
+        image = torch.from_numpy(np.moveaxis(self._resize_image(image), -1, 0)).unsqueeze(0).unsqueeze(0).to(device=self.device)
         # image2 = torch.ones_like(image)
 
         # input_observation = {"image_primary": image, "image_wrist": image2}
