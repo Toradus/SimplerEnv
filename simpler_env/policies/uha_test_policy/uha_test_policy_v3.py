@@ -50,8 +50,10 @@ class UhaInference:
         elif self.policy_setup == "widowx_bridge":
             self.sticky_gripper_num_repeat = 1
             # use bridge norm values
-            self.max_values = torch.tensor([0.02911195397377009, 0.04201051414012899, 0.04071581304073327, 0.08772125840187053, 0.08282401025295247, 0.16359195709228502, 1.0]) # p99
-            self.min_values = torch.tensor([-0.029900161027908326, -0.04327958464622497, -0.02570973977446556, -0.0863340237736702, -0.09845495343208313, -0.1693541383743286, 0.0]) # p01
+            # self.max_values = torch.tensor([0.02911195397377009, 0.04201051414012899, 0.04071581304073327, 0.08772125840187053, 0.08282401025295247, 0.16359195709228502, 1.0]) # p99 NILS bridge
+            self.max_values = torch.tensor([0.028122276067733765, 0.040630316659808145, 0.03994889184832546, 0.08121915772557152, 0.07724379181861864, 0.20214049845933896, 1.0]) # p99
+            # self.min_values = torch.tensor([-0.029900161027908326, -0.04327958464622497, -0.02570973977446556, -0.0863340237736702, -0.09845495343208313, -0.1693541383743286, 0.0]) # p01 NILS bridge
+            self.min_values = torch.tensor([-0.028539552688598632, -0.041432044506073, -0.025977383628487588, -0.08020886614918708, -0.09213060349225997, -0.2054861941933632, 0.0]) # p01
         else:
             raise NotImplementedError()
 
@@ -76,6 +78,7 @@ class UhaInference:
 
     def _initialize_task_description(self, task_description: Optional[str] = None) -> None:
         if task_description is not None:
+            print("task description: ", task_description)
             self.task_description = task_description
             self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
             self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0).to(device=self.device)
