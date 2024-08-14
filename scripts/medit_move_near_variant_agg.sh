@@ -1,7 +1,8 @@
 gpu_id=6
 
 # declare -a arr=("simpler_siglip_finetune/checkpoint_276000")
-declare -a arr=("simpler_siglip_lower_lr/checkpoint_240000")
+# declare -a arr=("simpler_siglip_lower_lr/checkpoint_240000")
+declare -a arr=("simpler_siglip_finetune/lower_lr")
 for ckpt_path in "${arr[@]}"; do echo "$ckpt_path"; done
 
 

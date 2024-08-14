@@ -37,11 +37,16 @@ class UhaInference:
         self.action_scale = action_scale
 
         # ------------------------- #
-        weights_path = "/home/marcelr/uha_test_policy/logs/runs/simpler_siglip_finetune"
+        # weights_path = "/home/marcelr/uha_test_policy/logs/runs/simpler_siglip_finetune"
+        # checkpoint_path = os.path.join(weights_path, "checkpoint_276000")
+        weights_path = "/home/marcelr/uha_test_policy/logs/runs/simpler_siglip_lower_lr"
+        checkpoint_path = os.path.join(weights_path, "checkpoint_240000")
+        # weights_path = "/home/marcelr/uha_test_policy/logs/runs/2024-08-12/23-06-47"
+        # checkpoint_path = os.path.join(weights_path, "checkpoint_76000")
+        # weights_path = "/home/marcelr/uha_test_policy/logs/runs/NILS_training"
         file_path = os.path.dirname(os.path.abspath(__file__))
         # weights_path_relative = os.path.relpath(weights_path, os.getcwd())
         weights_path_relative = os.path.relpath(weights_path, file_path)
-        checkpoint_path = os.path.join(weights_path, "checkpoint_276000")
 
         with initialize(config_path=os.path.join(weights_path_relative, ".hydra")):
             cfg = compose(config_name="config")

@@ -1,7 +1,8 @@
 gpu_id=7
 policy_model=medit
 # ckpt_path="simpler_siglip_finetune/checkpoint_276000"
-ckpt_path="simpler_siglip_lower_lr/checkpoint_240000"
+# ckpt_path="NILS_training/checkpoint_76000"
+ckpt_path="simpler_siglip_finetune/lower_lr"
 
 scene_name=bridge_table_1_v1
 robot=widowx

@@ -1043,7 +1043,9 @@ CKPT_MAPPING = {
     # "octo-small": "octo-small",
     # "octo-server": "octo-server",
     # "medit": "checkpoint_276000",
-    "medit": "checkpoint_240000",
+    # "medit": "lower_lr",
+    # "medit": "checkpoint_152000",
+    "medit": "checkpoint_76000",
 }
 
 parser = argparse.ArgumentParser()
