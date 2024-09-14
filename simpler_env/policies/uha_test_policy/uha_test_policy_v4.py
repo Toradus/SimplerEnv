@@ -14,7 +14,7 @@ from hydra import compose, initialize
 import hydra
 from safetensors.torch import load_model
 # from agents.utils.ema import ExponentialMovingAverage
-from uha_test.agents.utils.ema import ExponentialMovingAverage
+from medit.agents.utils.ema import ExponentialMovingAverage
 
 
 class UhaInference:
