@@ -5,7 +5,8 @@ gpu_id=7
 
 # declare -a ckpt_paths=("simpler_siglip_finetune/checkpoint_276000")
 # declare -a ckpt_paths=("simpler_siglip_lower_lr/checkpoint_240000")
-declare -a ckpt_paths=("simpler_siglip_finetune/lower_lr")
+# declare -a ckpt_paths=("simpler_siglip_finetune/lower_lr")
+declare -a ckpt_paths=("rectipy_sim_all/checkpoint_150000")
 
 declare -a env_names=(
 PlaceIntoClosedTopDrawerCustomInScene-v0

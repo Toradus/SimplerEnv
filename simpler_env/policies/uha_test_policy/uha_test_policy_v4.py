@@ -22,7 +22,7 @@ class UhaInference:
     def __init__(
         self,
         saved_model_path: str = "",
-        lang_embed: str = "ViT-B/32", # "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
+        lang_embed: str = "ViT-B/32", # "ViT-B/32", # "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
         image_size: int = 224,
         pred_action_horizon: int = 10,
         action_scale: float = 1.0,

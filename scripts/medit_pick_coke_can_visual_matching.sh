@@ -2,7 +2,8 @@ gpu_id=7
 
 # declare -a arr=("simpler_siglip_finetune/checkpoint_276000")
 # declare -a arr=("simpler_siglip_lower_lr/checkpoint_240000")
-declare -a arr=("simpler_siglip_finetune/lower_lr")
+# declare -a arr=("simpler_siglip_finetune/lower_lr")
+declare -a arr=("rectipy_sim_all/checkpoint_150000")
 
 # lr_switch=laying horizontally but flipped left-right to match real eval; upright=standing; laid_vertically=laying vertically
 declare -a coke_can_options_arr=("lr_switch=True" "upright=True" "laid_vertically=True")

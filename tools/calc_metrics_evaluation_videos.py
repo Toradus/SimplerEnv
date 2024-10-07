@@ -1045,7 +1045,7 @@ CKPT_MAPPING = {
     # "medit": "checkpoint_276000",
     # "medit": "lower_lr",
     # "medit": "checkpoint_152000",
-    "medit": "checkpoint_76000",
+    "medit": "checkpoint_150000",
 }
 
 parser = argparse.ArgumentParser()
