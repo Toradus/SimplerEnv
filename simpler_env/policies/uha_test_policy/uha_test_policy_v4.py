@@ -15,13 +15,14 @@ import hydra
 from safetensors.torch import load_model
 # from agents.utils.ema import ExponentialMovingAverage
 from medit.agents.utils.ema import ExponentialMovingAverage
+from medit.agents.input_encoders.goal_encoders.language_encoders.clip_tokens import TokenLangClip
 
 
 class UhaInference:
     def __init__(
         self,
         saved_model_path: str = "",
-        lang_embed: str = "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
+        lang_embed: str = "ViT-B/32", # "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
         image_size: int = 224,
         pred_action_horizon: int = 10,
         action_scale: float = 1.0,
@@ -30,6 +31,8 @@ class UhaInference:
     ) -> None:
         if lang_embed == "openai/clip-vit-base-patch32":
             self.lang_embed_model = CLIPTokenizer.from_pretrained(lang_embed)
+        elif lang_embed == "ViT-B/32":
+            self.lang_embed_model = TokenLangClip(model_name="ViT-B/32")
         else:
             self.lang_embed_model = hub.load(lang_embed)
         
@@ -37,10 +40,9 @@ class UhaInference:
         self.action_scale = action_scale
 
         # ------------------------- #
-        # weights_path = "/home/marcelr/uha_test_policy/logs/runs/simpler_siglip_finetune"
-        # checkpoint_path = os.path.join(weights_path, "checkpoint_276000")
-        weights_path = "/home/marcelr/uha_test_policy/logs/runs/simpler_siglip_lower_lr"
-        checkpoint_path = os.path.join(weights_path, "checkpoint_240000")
+        model_path_split = saved_model_path.split("/")
+        weights_path = "/home/marcelr/MeDiT_Policy/logs/runs/" + model_path_split[0]
+        checkpoint_path = os.path.join(weights_path, model_path_split[1])
         # weights_path = "/home/marcelr/uha_test_policy/logs/runs/2024-08-12/23-06-47"
         # checkpoint_path = os.path.join(weights_path, "checkpoint_76000")
         # weights_path = "/home/marcelr/uha_test_policy/logs/runs/NILS_training"
@@ -118,9 +120,12 @@ class UhaInference:
         if task_description is not None:
             print("task description: ", task_description)
             self.task_description = task_description
-            self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
-            self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0).to(device=self.device)
-            self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0).to(device=self.device)
+            if isinstance(self.lang_embed_model, TokenLangClip):
+                self.task_description_embedding = self.lang_embed_model([task_description])
+            else:
+                self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
+                self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0).to(device=self.device)
+                self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0).to(device=self.device)
         else:
             self.task_description = ""
             self.task_description_embedding = tf.zeros((512,), dtype=tf.float32)
@@ -158,7 +163,7 @@ class UhaInference:
         }
         unscaled_raw_actions = self.agent(input_observation).cpu() # (action_dim)
 
-        raw_actions = torch.cat([self.rescale_to_range(unscaled_raw_actions[:-1]), unscaled_raw_actions[-1:]])
+        raw_actions = torch.cat([self.rescale_to_range(unscaled_raw_actions[:-1]), unscaled_raw_actions[-1:]]).detach()
 
         assert raw_actions.shape == (7,)
 
