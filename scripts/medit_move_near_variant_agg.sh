@@ -1,4 +1,4 @@
-gpu_id=6
+gpu_id=1
 
 # declare -a arr=("simpler_siglip_finetune/checkpoint_276000")
 # declare -a arr=("simpler_siglip_lower_lr/checkpoint_240000")

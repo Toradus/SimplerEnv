@@ -1,4 +1,4 @@
-gpu_id=7
+gpu_id=1
 # shader_dir=rt means that we turn on ray-tracing rendering; this is quite crucial for the open / close drawer task as policies often rely on shadows to infer depth
 
 # declare -a ckpt_paths=("simpler_siglip_finetune/checkpoint_276000")
