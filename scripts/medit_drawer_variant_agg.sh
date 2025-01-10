@@ -1,9 +1,9 @@
-gpu_id=1
+gpu_id=0
 # shader_dir=rt means that we turn on ray-tracing rendering; this is quite crucial for the open / close drawer task as policies often rely on shadows to infer depth
 # declare -a ckpt_paths=("simpler_siglip_finetune/checkpoint_276000")
 # declare -a ckpt_paths=("simpler_siglip_lower_lr/checkpoint_240000")
 # declare -a ckpt_paths=("simpler_siglip_finetune/lower_lr")
-declare -a ckpt_paths=("rectipy_sim_all/checkpoint_150000")
+declare -a ckpt_paths=("18-03-03/checkpoint_60000")
 
 declare -a env_names=(
 OpenTopDrawerCustomInScene-v0

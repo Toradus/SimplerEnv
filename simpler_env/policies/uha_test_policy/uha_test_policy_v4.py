@@ -14,34 +14,44 @@ from hydra import compose, initialize
 import hydra
 from safetensors.torch import load_model
 # from agents.utils.ema import ExponentialMovingAverage
-from medit.agents.utils.ema import ExponentialMovingAverage
-from medit.agents.input_encoders.goal_encoders.language_encoders.clip_tokens import TokenLangClip
+from flower.agents.utils.ema import ExponentialMovingAverage
+# from flower.agents.input_encoders.goal_encoders.language_encoders.clip_tokens import TokenLangClip
+from flower.agents.lang_encoders.florence_tokens import TokenVLM
+from flower.dataset.oxe.transforms import get_action_space_index
+from flower.dataset.utils.frequency_mapping import DATASET_FREQUENCY_MAP
+from flower.agents.utils.action_index import ActionIndex
 
+POLICY_SETUP_TO_DATASET_INDEX = {
+    "widowx_bridge": 0,
+    "google_robot": 7,
+}
 
 class UhaInference:
     def __init__(
         self,
+        saved_model_base_dir: str = "/home/reuss/code/flower_vla_policy/logs/runs/2025-01-09/",
         saved_model_path: str = "",
-        lang_embed: str = "ViT-B/32", # "ViT-B/32", # "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
+        # lang_embed: str = "ViT-B/32", # "ViT-B/32", # "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
         image_size: int = 224,
         pred_action_horizon: int = 10,
         action_scale: float = 1.0,
         policy_setup: str = "google_robot",
-        device: torch.device = torch.device("cpu"),
+        device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     ) -> None:
-        if lang_embed == "openai/clip-vit-base-patch32":
-            self.lang_embed_model = CLIPTokenizer.from_pretrained(lang_embed)
-        elif lang_embed == "ViT-B/32":
-            self.lang_embed_model = TokenLangClip(model_name="ViT-B/32")
-        else:
-            self.lang_embed_model = hub.load(lang_embed)
+        # if lang_embed == "openai/clip-vit-base-patch32":
+        #     self.lang_embed_model = CLIPTokenizer.from_pretrained(lang_embed)
+        # elif lang_embed == "ViT-B/32":
+        #     self.lang_embed_model = TokenLangClip(model_name="ViT-B/32")
+        # else:
+        #     self.lang_embed_model = hub.load(lang_embed)
+        self.lang_embed_model = TokenVLM("microsoft/Florence-2-large")
         
         self.image_size = image_size
         self.action_scale = action_scale
 
         # ------------------------- #
         model_path_split = saved_model_path.split("/")
-        weights_path = "/home/marcelr/MeDiT_Policy/logs/runs/" + model_path_split[0]
+        weights_path = saved_model_base_dir + model_path_split[0]
         checkpoint_path = os.path.join(weights_path, model_path_split[1])
         # weights_path = "/home/marcelr/uha_test_policy/logs/runs/2024-08-12/23-06-47"
         # checkpoint_path = os.path.join(weights_path, "checkpoint_76000")
@@ -54,15 +64,16 @@ class UhaInference:
             cfg = compose(config_name="config")
             current_path = os.getcwd()
 
-        ema_path = "custom_checkpoint_0.pkl" # "best_test_loss_model_ema_state_dict.pth" # "7000_model_ema_state_dict.pth" # "ema_50000.pth" # "model_ema_state_dict.pth"
+        # ema_path = "custom_checkpoint_0.pkl" # "best_test_loss_model_ema_state_dict.pth" # "7000_model_ema_state_dict.pth" # "ema_50000.pth" # "model_ema_state_dict.pth"
         cfg.batch_size = 1
         agent = hydra.utils.instantiate(cfg.trainer.agent, device=device, process_id=0)
-        missing, unexpected = load_model(agent, os.path.join(checkpoint_path, "model.safetensors"))
+        missing, unexpected = load_model(agent, os.path.join(checkpoint_path, "model.safetensors"), strict=False)
         print(missing)
         print(unexpected)
-        ema_helper = ExponentialMovingAverage(agent.parameters(), cfg.decay, device)
-        ema_helper.load_state_dict(torch.load(os.path.join(checkpoint_path, ema_path), map_location=device))
-        ema_helper.copy_to(agent.parameters())
+        # ema_helper = ExponentialMovingAverage(agent.parameters(), cfg.decay, device)
+        # ema_helper.load_state_dict(torch.load(os.path.join(checkpoint_path, ema_path), map_location=device))
+        # ema_helper.copy_to(agent.parameters())
+        agent.to(dtype=torch.bfloat16)
         agent.eval()
         pred_action_horizon = 10
         # ------------------------- #
@@ -96,6 +107,11 @@ class UhaInference:
             # self.min_values = torch.tensor([-0.4007510244846344, -0.13874775171279907, -0.22553899884223938, -3.2010786533355713, -1.8618112802505493, -6.279075622558594, 0.0]) # min
         else:
             raise NotImplementedError()
+        
+        self.action_space_index = torch.tensor([get_action_space_index('EEF_POS', 1, 'velocity', return_tensor=False)])
+        self.frequency = torch.tensor([DATASET_FREQUENCY_MAP[POLICY_SETUP_TO_DATASET_INDEX[self.policy_setup]]])
+
+        self.action_index = ActionIndex()
 
     def rescale_to_range(self, tensor) -> torch.Tensor:
         max_values = self.max_values.cpu()
@@ -120,18 +136,20 @@ class UhaInference:
         if task_description is not None:
             print("task description: ", task_description)
             self.task_description = task_description
-            if isinstance(self.lang_embed_model, TokenLangClip):
-                self.task_description_embedding = self.lang_embed_model([task_description])
-            else:
-                self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
-                self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0).to(device=self.device)
-                self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0).to(device=self.device)
+            # if isinstance(self.lang_embed_model, TokenLangClip):
+            #     self.task_description_embedding = self.lang_embed_model([task_description])
+            # else:
+            #     self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
+            #     self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0).to(device=self.device)
+            #     self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0).to(device=self.device)
+            self.task_description_embedding = self.lang_embed_model([task_description])
         else:
             self.task_description = ""
             self.task_description_embedding = tf.zeros((512,), dtype=tf.float32)
 
     def reset(self, task_description: str) -> None:
         self._initialize_task_description(task_description)
+        self.curr_horizon_index = 0
 
     def step(self, image: np.ndarray, task_description: Optional[str] = None, *args, **kwargs) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """
@@ -155,15 +173,27 @@ class UhaInference:
         image = torch.from_numpy(np.moveaxis(self._resize_image(image), -1, 0)).unsqueeze(0).unsqueeze(0).to(device=self.device)
         # image2 = torch.ones_like(image)
 
-        # input_observation = {"image_primary": image, "image_wrist": image2}
-        input_observation = {"image_primary": image}
-        input_observation = {
-            "observation": input_observation,
-            "task": {"language_instruction": self.task_description_embedding}
-        }
-        unscaled_raw_actions = self.agent(input_observation).cpu() # (action_dim)
+        if self.curr_horizon_index % 15 == 0: # hardcode for now
+            self.curr_horizon_index = 0
+            # input_observation = {"image_primary": image, "image_wrist": image2}
+            input_observation = {
+                "image_primary": image.to(dtype=torch.bfloat16),
+                "pad_mask_dict": {"image_primary": torch.ones(1,1).bool().to(device=self.device)},
+            }
+            input_observation = {
+                "observation": input_observation,
+                "task": {
+                    "language_instruction": self.task_description_embedding,
+                    "frequency": self.frequency,
+                    "action_space_index": self.action_space_index,
+                }
+            }
+            unscaled_raw_actions = self.agent(input_observation).cpu() # (action_dim)
+            unscaled_raw_actions = unscaled_raw_actions[0, :, :self.action_index.get_action_dim(self.action_space_index)]
+            self.raw_actions = torch.cat([self.rescale_to_range(unscaled_raw_actions[..., :-1]), unscaled_raw_actions[...,-1:]], dim=-1).detach()
 
-        raw_actions = torch.cat([self.rescale_to_range(unscaled_raw_actions[:-1]), unscaled_raw_actions[-1:]]).detach()
+        raw_actions = self.raw_actions[self.curr_horizon_index].numpy()
+        self.curr_horizon_index += 1
 
         assert raw_actions.shape == (7,)
 

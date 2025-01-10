@@ -2,12 +2,20 @@ import os
 
 import numpy as np
 import tensorflow as tf
+import torch
 
 from simpler_env.evaluation.argparse import get_args
 from simpler_env.evaluation.maniskill2_evaluator import maniskill2_evaluator
 
 if __name__ == "__main__":
     args = get_args()
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+    print(torch.cuda.device_count())
+    device = torch.device("cuda")  # Change this to "cpu" if needed
+    torch.set_default_device(device)
+    print(device)
+    print(torch.cuda.is_available())
 
     os.environ["DISPLAY"] = ""
     # prevent a single jax process from taking up all the GPU memory

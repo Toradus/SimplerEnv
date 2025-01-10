@@ -7,4 +7,5 @@ def get_image_from_maniskill2_obs_dict(env, obs, camera_name=None):
             camera_name = "3rd_view_camera"
         else:
             raise NotImplementedError()
+    # return obs["image"][camera_name]["Color"]
     return obs["image"][camera_name]["rgb"]
