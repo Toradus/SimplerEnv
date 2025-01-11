@@ -37,31 +37,10 @@ class FakeArgs:
     octo_init_rng: int = 0
 
 
-# gpu_id=7
-# policy_model=medit
-# # ckpt_path="simpler_siglip_finetune/checkpoint_276000"
-# # ckpt_path="NILS_training/checkpoint_76000"
-# # ckpt_path="rectipy_sim_all/checkpoint_150000"
-# ckpt_path="seq_beso_sim_all/checkpoint_110000"
-
-# scene_name=bridge_table_1_v1
-# robot=widowx
-# rgb_overlay_path=ManiSkill2_real2sim/data/real_inpainting/bridge_real_eval_1.png
-# robot_init_x=0.147
-# robot_init_y=0.028
-
-ckpt = "18-03-03/checkpoint_60000"
-ckpt = "16-30-28/checkpoint_60000"
+ckpt = "16-30-28/checkpoint_80000"
 
 fake_args = {
     "medit_bridge.sh": [
-        # CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path ${ckpt_path} \
-        #   --robot ${robot} --policy-setup widowx_bridge \
-        #   --control-freq 5 --sim-freq 500 --max-episode-steps 60 \
-        #   --env-name PutCarrotOnPlateInScene-v0 --scene-name ${scene_name} \
-        #   --rgb-overlay-path ${rgb_overlay_path} \
-        #   --robot-init-x ${robot_init_x} ${robot_init_x} 1 --robot-init-y ${robot_init_y} ${robot_init_y} 1 --obj-variation-mode episode --obj-episode-range 0 24 \
-        #   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1;
         FakeArgs(
             policy_model="medit",
             ckpt_path=ckpt,
@@ -81,14 +60,6 @@ fake_args = {
             robot_init_rot_rpy_range=(0, 0, 1, 0, 0, 1, 0, 0, 1),
         ),
 
-
-        # CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-model ${policy_model} --ckpt-path ${ckpt_path} \
-        #   --robot ${robot} --policy-setup widowx_bridge \
-        #   --control-freq 5 --sim-freq 500 --max-episode-steps 60 \
-        #   --env-name PutSpoonOnTableClothInScene-v0 --scene-name ${scene_name} \
-        #   --rgb-overlay-path ${rgb_overlay_path} \
-        #   --robot-init-x ${robot_init_x} ${robot_init_x} 1 --robot-init-y ${robot_init_y} ${robot_init_y} 1 --obj-variation-mode episode --obj-episode-range 0 24 \
-        #   --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1;
         FakeArgs(
             policy_model="medit",
             ckpt_path=ckpt,
@@ -110,29 +81,6 @@ fake_args = {
     ],
 
     "medit_pick_coke_can_variant_agg.sh": [
-        # declare -a coke_can_options_arr=("lr_switch=True" "upright=True" "laid_vertically=True")
-
-        # for ckpt_path in "${arr[@]}"; do echo "$ckpt_path"; done
-
-
-        # # base setup
-
-        # env_name=GraspSingleOpenedCokeCanInScene-v0
-        # scene_name=google_pick_coke_can_1_v4
-
-        # for coke_can_option in "${coke_can_options_arr[@]}";
-
-        # do for ckpt_path in "${arr[@]}";
-
-        # do CUDA_VISIBLE_DEVICES=${gpu_id} python simpler_env/main_inference.py --policy-model medit --ckpt-path ${ckpt_path} \
-        # --robot google_robot_static \
-        # --control-freq 3 --sim-freq 513 --max-episode-steps 80 \
-        # --env-name ${env_name} --scene-name ${scene_name} \
-        # --robot-init-x 0.35 0.35 1 --robot-init-y 0.20 0.20 1 --obj-init-x -0.35 -0.12 5 --obj-init-y -0.02 0.42 5 \
-        # --robot-init-rot-quat-center 0 0 0 1 --robot-init-rot-rpy-range 0 0 1 0 0 1 0 0 1 \
-        # --additional-env-build-kwargs ${coke_can_option};
-
-        # done
 
         # done
         FakeArgs(

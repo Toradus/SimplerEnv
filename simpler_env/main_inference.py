@@ -54,7 +54,7 @@ def main(args):
                 action_scale=args.action_scale,
             )
     elif args.policy_model == "medit":
-        from simpler_env.policies.uha_test_policy.uha_test_policy_v4 import UhaInference
+        from SimplerEnv.simpler_env.policies.uha_test_policy.flower_vla_test import UhaInference
         model = UhaInference(
             saved_model_path=args.ckpt_path,
             policy_setup=args.policy_setup,

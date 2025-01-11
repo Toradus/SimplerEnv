@@ -32,19 +32,12 @@ class UhaInference:
         self,
         saved_model_base_dir: str = "/home/reuss/code/flower_vla_policy/logs/runs/2025-01-10/",
         saved_model_path: str = "",
-        # lang_embed: str = "ViT-B/32", # "ViT-B/32", # "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
         image_size: int = 224,
         pred_action_horizon: int = 10,
         action_scale: float = 1.0,
         policy_setup: str = "google_robot",
         device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     ) -> None:
-        # if lang_embed == "openai/clip-vit-base-patch32":
-        #     self.lang_embed_model = CLIPTokenizer.from_pretrained(lang_embed)
-        # elif lang_embed == "ViT-B/32":
-        #     self.lang_embed_model = TokenLangClip(model_name="ViT-B/32")
-        # else:
-        #     self.lang_embed_model = hub.load(lang_embed)
         self.lang_embed_model = TokenVLM("microsoft/Florence-2-large")
         
         self.image_size = image_size
@@ -54,11 +47,7 @@ class UhaInference:
         model_path_split = saved_model_path.split("/")
         weights_path = saved_model_base_dir + model_path_split[0]
         checkpoint_path = os.path.join(weights_path, model_path_split[1])
-        # weights_path = "/home/marcelr/uha_test_policy/logs/runs/2024-08-12/23-06-47"
-        # checkpoint_path = os.path.join(weights_path, "checkpoint_76000")
-        # weights_path = "/home/marcelr/uha_test_policy/logs/runs/NILS_training"
         file_path = os.path.dirname(os.path.abspath(__file__))
-        # weights_path_relative = os.path.relpath(weights_path, os.getcwd())
         weights_path_relative = os.path.relpath(weights_path, file_path)
 
         with initialize(config_path=os.path.join(weights_path_relative, ".hydra")):
@@ -70,6 +59,7 @@ class UhaInference:
         cfg.trainer.agent.agent.use_proprio = False # since we only need it for bimanual
         cfg.trainer.agent.agent.act_window_size = 5 # since we are doing single arm delta eef with 3 hz 
         cfg.trainer.agent.agent.multistep = 5 # since we are doing single arm delta eef with 3 hz
+        cfg.trainer.agent.agent.num_sampling_steps = 5
         agent = hydra.utils.instantiate(cfg.trainer.agent, device=device, process_id=0)
         missing, unexpected = load_model(agent, os.path.join(checkpoint_path, "model.safetensors"), strict=False)
         print(missing)
@@ -122,12 +112,8 @@ class UhaInference:
         elif self.policy_setup == "widowx_bridge":
             self.sticky_gripper_num_repeat = 1
             # use bridge norm values
-            # self.max_values = torch.tensor([0.02911195397377009, 0.04201051414012899, 0.04071581304073327, 0.08772125840187053, 0.08282401025295247, 0.16359195709228502, 1.0]) # p99 NILS bridge
             self.max_values = torch.tensor([0.028122276067733765, 0.040630316659808145, 0.03994889184832546, 0.08121915772557152, 0.07724379181861864, 0.20214049845933896]) # p99 # 1.0
-            # self.max_values = torch.tensor([0.41691166162490845, 0.25864794850349426, 0.21218234300613403, 3.122201919555664, 1.8618112802505493, 6.280478477478027, 1.0]) # max
-            # self.min_values = torch.tensor([-0.029900161027908326, -0.04327958464622497, -0.02570973977446556, -0.0863340237736702, -0.09845495343208313, -0.1693541383743286, 0.0]) # p01 NILS bridge
             self.min_values = torch.tensor([-0.028539552688598632, -0.041432044506073, -0.025977383628487588, -0.08020886614918708, -0.09213060349225997, -0.2054861941933632]) # p01 # 0.0
-            # self.min_values = torch.tensor([-0.4007510244846344, -0.13874775171279907, -0.22553899884223938, -3.2010786533355713, -1.8618112802505493, -6.279075622558594, 0.0]) # min
             self.format_instruction = functools.partial(
                 generate_policy_prompt,
                 robot_name="WindowX",
@@ -166,12 +152,6 @@ class UhaInference:
         if task_description is not None:
             print("task description: ", task_description)
             self.task_description = task_description
-            # if isinstance(self.lang_embed_model, TokenLangClip):
-            #     self.task_description_embedding = self.lang_embed_model([task_description])
-            # else:
-            #     self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
-            #     self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0).to(device=self.device)
-            #     self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0).to(device=self.device)
             self.task_description_embedding = self.lang_embed_model([self.task_description])
         else:
             self.task_description = ""
@@ -245,28 +225,7 @@ class UhaInference:
 
         if self.policy_setup == "google_robot":
             current_gripper_action = raw_action["open_gripper"]
-
-            # This is one of the ways to implement gripper actions; we use an alternative implementation below for consistency with real
-            # gripper_close_commanded = (current_gripper_action < 0.5)
-            # relative_gripper_action = 1 if gripper_close_commanded else -1 # google robot 1 = close; -1 = open
-
-            # # if action represents a change in gripper state and gripper is not already sticky, trigger sticky gripper
-            # if gripper_close_commanded != self.gripper_is_closed and not self.sticky_action_is_on:
-            #     self.sticky_action_is_on = True
-            #     self.sticky_gripper_action = relative_gripper_action
-
-            # if self.sticky_action_is_on:
-            #     self.gripper_action_repeat += 1
-            #     relative_gripper_action = self.sticky_gripper_action
-
-            # if self.gripper_action_repeat == self.sticky_gripper_num_repeat:
-            #     self.gripper_is_closed = (self.sticky_gripper_action > 0)
-            #     self.sticky_action_is_on = False
-            #     self.gripper_action_repeat = 0
-
-            # action['gripper'] = np.array([relative_gripper_action])
-
-            # alternative implementation
+            
             if self.previous_gripper_action is None:
                 relative_gripper_action = np.array([0])
             else:
