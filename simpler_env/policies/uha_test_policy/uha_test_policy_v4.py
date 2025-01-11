@@ -1,4 +1,5 @@
 from collections import defaultdict
+import functools
 import os
 from typing import Optional, Sequence
 
@@ -14,10 +15,10 @@ from hydra import compose, initialize
 import hydra
 from safetensors.torch import load_model
 # from agents.utils.ema import ExponentialMovingAverage
-from flower.agents.utils.ema import ExponentialMovingAverage
+from flower.agents.utils.diffuser_ema import EMAModel
 # from flower.agents.input_encoders.goal_encoders.language_encoders.clip_tokens import TokenLangClip
 from flower.agents.lang_encoders.florence_tokens import TokenVLM
-from flower.dataset.oxe.transforms import get_action_space_index
+from flower.dataset.oxe.transforms import generate_policy_prompt, get_action_space_index
 from flower.dataset.utils.frequency_mapping import DATASET_FREQUENCY_MAP
 from flower.agents.utils.action_index import ActionIndex
 
@@ -29,7 +30,7 @@ POLICY_SETUP_TO_DATASET_INDEX = {
 class UhaInference:
     def __init__(
         self,
-        saved_model_base_dir: str = "/home/reuss/code/flower_vla_policy/logs/runs/2025-01-09/",
+        saved_model_base_dir: str = "/home/reuss/code/flower_vla_policy/logs/runs/2025-01-10/",
         saved_model_path: str = "",
         # lang_embed: str = "ViT-B/32", # "ViT-B/32", # "openai/clip-vit-base-patch32", # "https://tfhub.dev/google/universal-sentence-encoder-large/5",
         image_size: int = 224,
@@ -64,18 +65,33 @@ class UhaInference:
             cfg = compose(config_name="config")
             current_path = os.getcwd()
 
-        # ema_path = "custom_checkpoint_0.pkl" # "best_test_loss_model_ema_state_dict.pth" # "7000_model_ema_state_dict.pth" # "ema_50000.pth" # "model_ema_state_dict.pth"
+        ema_path = "random_states_0.pkl" # "best_test_loss_model_ema_state_dict.pth" # "7000_model_ema_state_dict.pth" # "ema_50000.pth" # "model_ema_state_dict.pth"
         cfg.batch_size = 1
+        cfg.trainer.agent.agent.use_proprio = False # since we only need it for bimanual
+        cfg.trainer.agent.agent.act_window_size = 5 # since we are doing single arm delta eef with 3 hz 
+        cfg.trainer.agent.agent.multistep = 5 # since we are doing single arm delta eef with 3 hz
         agent = hydra.utils.instantiate(cfg.trainer.agent, device=device, process_id=0)
         missing, unexpected = load_model(agent, os.path.join(checkpoint_path, "model.safetensors"), strict=False)
         print(missing)
         print(unexpected)
-        # ema_helper = ExponentialMovingAverage(agent.parameters(), cfg.decay, device)
-        # ema_helper.load_state_dict(torch.load(os.path.join(checkpoint_path, ema_path), map_location=device))
-        # ema_helper.copy_to(agent.parameters())
+        # Initialize EMA with all required parameters
+        ema_helper = EMAModel(
+            parameters=agent.parameters(),
+            decay=cfg.decay,
+            min_decay=0.0,  # Add this parameter
+            update_after_step=0,
+            use_ema_warmup=True,
+            inv_gamma=1.0,
+            power=2/3,
+            foreach=False,
+            model_cls=type(agent),
+            model_config=agent.config if hasattr(agent, 'config') else None
+        )
+        ema_helper.load_state_dict(torch.load(os.path.join(checkpoint_path, ema_path), map_location=device))
+        ema_helper.copy_to(agent.parameters())
         agent.to(dtype=torch.bfloat16)
         agent.eval()
-        pred_action_horizon = 10
+        pred_action_horizon = 5
         # ------------------------- #
 
         self.agent = agent
@@ -96,6 +112,13 @@ class UhaInference:
             # use fractal20220817_data norm values
             self.max_values = torch.tensor([0.17824687153100965, 0.14938379630446405, 0.21842354819178575, 0.5892666035890578, 0.35272657424211445, 0.44796681255102094]) # p99
             self.min_values = torch.tensor([-0.22453527510166169, -0.14820013284683228, -0.231589707583189, -0.3517994859814644, -0.4193011274933815, -0.43643461108207704]) # p01
+            self.format_instruction = functools.partial(
+                generate_policy_prompt,
+                robot_name="XARM",
+                num_arms="1", 
+                action_space="Delta End-Effector",
+                prompt_style="minimal"
+            )
         elif self.policy_setup == "widowx_bridge":
             self.sticky_gripper_num_repeat = 1
             # use bridge norm values
@@ -105,12 +128,19 @@ class UhaInference:
             # self.min_values = torch.tensor([-0.029900161027908326, -0.04327958464622497, -0.02570973977446556, -0.0863340237736702, -0.09845495343208313, -0.1693541383743286, 0.0]) # p01 NILS bridge
             self.min_values = torch.tensor([-0.028539552688598632, -0.041432044506073, -0.025977383628487588, -0.08020886614918708, -0.09213060349225997, -0.2054861941933632]) # p01 # 0.0
             # self.min_values = torch.tensor([-0.4007510244846344, -0.13874775171279907, -0.22553899884223938, -3.2010786533355713, -1.8618112802505493, -6.279075622558594, 0.0]) # min
+            self.format_instruction = functools.partial(
+                generate_policy_prompt,
+                robot_name="WindowX",
+                num_arms="1",
+                action_space="Delta End-Effector",
+                prompt_style="minimal",
+            )
         else:
             raise NotImplementedError()
         
         self.action_space_index = torch.tensor([get_action_space_index('EEF_POS', 1, 'velocity', return_tensor=False)])
         self.frequency = torch.tensor([DATASET_FREQUENCY_MAP[POLICY_SETUP_TO_DATASET_INDEX[self.policy_setup]]])
-
+        
         self.action_index = ActionIndex()
 
     def rescale_to_range(self, tensor) -> torch.Tensor:
@@ -142,7 +172,7 @@ class UhaInference:
             #     self.task_description_embedding = self.lang_embed_model([task_description], return_tensors = 'pt', padding = "max_length", truncation = True, max_length = 77)
             #     self.task_description_embedding["input_ids"] = self.task_description_embedding["input_ids"].unsqueeze(0).to(device=self.device)
             #     self.task_description_embedding["attention_mask"] = self.task_description_embedding["attention_mask"].unsqueeze(0).to(device=self.device)
-            self.task_description_embedding = self.lang_embed_model([task_description])
+            self.task_description_embedding = self.lang_embed_model([self.task_description])
         else:
             self.task_description = ""
             self.task_description_embedding = tf.zeros((512,), dtype=tf.float32)
@@ -164,6 +194,7 @@ class UhaInference:
                 - 'gripper': np.ndarray of shape (1,), gripper action
                 - 'terminate_episode': np.ndarray of shape (1,), 1 if episode should be terminated, 0 otherwise
         """
+        task_description = self.format_instruction(task_description)
         if task_description is not None:
             if task_description != self.task_description:
                 # task description has changed; reset the policy state
@@ -173,27 +204,27 @@ class UhaInference:
         image = torch.from_numpy(np.moveaxis(self._resize_image(image), -1, 0)).unsqueeze(0).unsqueeze(0).to(device=self.device)
         # image2 = torch.ones_like(image)
 
-        if self.curr_horizon_index % 15 == 0: # hardcode for now
-            self.curr_horizon_index = 0
+        # if self.curr_horizon_index % 5 == 0: # hardcode for now
+        #     self.curr_horizon_index = 0
             # input_observation = {"image_primary": image, "image_wrist": image2}
-            input_observation = {
-                "image_primary": image.to(dtype=torch.bfloat16),
-                "pad_mask_dict": {"image_primary": torch.ones(1,1).bool().to(device=self.device)},
+        input_observation = {
+            "image_primary": image.to(dtype=torch.bfloat16),
+            "pad_mask_dict": {"image_primary": torch.ones(1,1).bool().to(device=self.device)},
+        }
+        input_observation = {
+            "observation": input_observation,
+            "task": {
+                "language_instruction": self.task_description_embedding,
+                "frequency": self.frequency,
+                "action_space_index": self.action_space_index,
             }
-            input_observation = {
-                "observation": input_observation,
-                "task": {
-                    "language_instruction": self.task_description_embedding,
-                    "frequency": self.frequency,
-                    "action_space_index": self.action_space_index,
-                }
-            }
-            unscaled_raw_actions = self.agent(input_observation).cpu() # (action_dim)
-            unscaled_raw_actions = unscaled_raw_actions[0, :, :self.action_index.get_action_dim(self.action_space_index)]
-            self.raw_actions = torch.cat([self.rescale_to_range(unscaled_raw_actions[..., :-1]), unscaled_raw_actions[...,-1:]], dim=-1).detach()
+        }
+        unscaled_raw_actions = self.agent(input_observation).cpu() # (action_dim)
+        unscaled_raw_actions = unscaled_raw_actions[:self.action_index.get_action_dim(self.action_space_index)]
+        raw_actions = torch.cat([self.rescale_to_range(unscaled_raw_actions[..., :-1]), unscaled_raw_actions[...,-1:]], dim=-1).detach()
 
-        raw_actions = self.raw_actions[self.curr_horizon_index].numpy()
-        self.curr_horizon_index += 1
+        #raw_actions = self.raw_actions[self.curr_horizon_index].numpy()
+        # self.curr_horizon_index += 1
 
         assert raw_actions.shape == (7,)
 

@@ -7,9 +7,7 @@ import torch
 from simpler_env.evaluation.argparse import get_args
 from simpler_env.evaluation.maniskill2_evaluator import maniskill2_evaluator
 
-if __name__ == "__main__":
-    args = get_args()
-
+def main(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = "4"
     print(torch.cuda.device_count())
     device = torch.device("cuda")  # Change this to "cpu" if needed
@@ -69,3 +67,7 @@ if __name__ == "__main__":
     success_arr = maniskill2_evaluator(model, args)
     print(args)
     print(" " * 10, "Average success", np.mean(success_arr))
+
+if __name__ == "__main__":
+    args = get_args()
+    main(args)
