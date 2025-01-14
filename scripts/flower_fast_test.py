@@ -37,7 +37,9 @@ class FakeArgs:
     octo_init_rng: int = 0
 
 
-ckpt = "16-30-28/checkpoint_80000"
+ckpt = "16-30-28/checkpoint_160000"
+ckpt = '13-14-17/checkpoint_120000'
+ckpt = '19-47-12/checkpoint_40000'
 
 fake_args = {
     "medit_bridge.sh": [
@@ -78,6 +80,7 @@ fake_args = {
             robot_init_rot_quat_center=(0, 0, 0, 1),
             robot_init_rot_rpy_range=(0, 0, 1, 0, 0, 1, 0, 0, 1),
         ),
+        
     ],
 
     "medit_pick_coke_can_variant_agg.sh": [

@@ -8,7 +8,7 @@ from simpler_env.evaluation.argparse import get_args
 from simpler_env.evaluation.maniskill2_evaluator import maniskill2_evaluator
 
 def main(args):
-    os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     print(torch.cuda.device_count())
     device = torch.device("cuda")  # Change this to "cpu" if needed
     torch.set_default_device(device)
