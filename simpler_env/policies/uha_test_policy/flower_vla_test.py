@@ -56,8 +56,8 @@ class UhaInference:
         ema_path = "random_states_0.pkl" # "best_test_loss_model_ema_state_dict.pth" # "7000_model_ema_state_dict.pth" # "ema_50000.pth" # "model_ema_state_dict.pth"
         cfg.batch_size = 1
         cfg.trainer.agent.agent.act_window_size = 10 # since we are doing single arm delta eef with 3 hz 
-        cfg.trainer.agent.agent.multistep = 5 # since we are doing single arm delta eef with 3 hz
-        cfg.trainer.agent.agent.num_sampling_steps = 10
+        cfg.trainer.agent.agent.multistep = 3 # since we are doing single arm delta eef with 3 hz
+        cfg.trainer.agent.agent.num_sampling_steps = 5
         agent = hydra.utils.instantiate(cfg.trainer.agent, device=device, process_id=0)
          # In __init__:
         pre_load_hash = get_model_hash(agent)
@@ -91,6 +91,7 @@ class UhaInference:
             print("Loaded model weights successfully")
 
         missing, unexpected = [], []
+        '''
         # Load EMA weights if they exist
         ema_helper = EMAModel(
             parameters=agent.parameters(),
@@ -110,7 +111,7 @@ class UhaInference:
             ema_state = torch.load(ema_path, map_location=device)
             ema_helper.load_state_dict(ema_state)
             print("Loaded EMA weights successfully")
-            ema_helper.copy_to(agent.parameters())'''
+            ema_helper.copy_to(agent.parameters())
 
         # we cannot sue prioprio for isngl arm only meant for bimanual for now 
         agent.agent.use_proprio = False

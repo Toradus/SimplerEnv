@@ -40,7 +40,7 @@ class FakeArgs:
 # ckpt = "16-30-28/checkpoint_160000"
 # ckpt = '13-14-17/checkpoint_120000'
 ckpt = '06-17-32/checkpoint_170000'
-ckpt = '15-23-08/checkpoint_5000'
+ckpt = '15-23-08/checkpoint_110000'
 
 fake_args = {
     "medit_bridge.sh": [
