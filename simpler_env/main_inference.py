@@ -69,6 +69,8 @@ def main(args, model=None):
     print(args)
     print(" " * 10, "Average success", np.mean(success_arr))
 
+    return np.mean(success_arr)
+
 if __name__ == "__main__":
     args = get_args()
     main(args)

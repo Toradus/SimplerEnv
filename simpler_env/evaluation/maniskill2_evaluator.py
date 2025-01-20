@@ -92,7 +92,7 @@ def run_maniskill2_eval_single_episode(
     else:
         # get default language instruction
         task_description = env.unwrapped.get_language_instruction()
-    print(task_description)
+    # print(task_description)
 
     # Initialize logging
     image = get_image_from_maniskill2_obs_dict(env.unwrapped, obs, camera_name=obs_camera_name)
@@ -127,10 +127,10 @@ def run_maniskill2_eval_single_episode(
         new_task_description = env.unwrapped.get_language_instruction()
         if new_task_description != task_description:
             task_description = new_task_description
-            print(task_description)
+            # print(task_description)
         is_final_subtask = env.unwrapped.is_final_subtask()
 
-        print(timestep, info)
+        # print(timestep, info)
 
         image = get_image_from_maniskill2_obs_dict(env.unwrapped, obs, camera_name=obs_camera_name)
         images.append(image)

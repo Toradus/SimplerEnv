@@ -27,7 +27,7 @@ def calc_pick_coke_can_stats(root_result_dir):
             # "rt-1-x": 0.88,
             # "rt-1-begin": 0.20,
             # "octo-base": 0.44,
-            "medit": 0,
+            "custom": 0,
         },
         "vertical": {
             # "rt-2-x": 0.80,
@@ -36,7 +36,7 @@ def calc_pick_coke_can_stats(root_result_dir):
             # "rt-1-x": 0.56,
             # "rt-1-begin": 0.00,
             # "octo-base": 0.20,
-            "medit": 0,
+            "custom": 0,
         },
         "standing": {
             # "rt-2-x": 1.00,
@@ -45,7 +45,7 @@ def calc_pick_coke_can_stats(root_result_dir):
             # "rt-1-x": 0.84,
             # "rt-1-begin": 0.20,
             # "octo-base": 0.24,
-            "medit": 0,
+            "custom": 0,
         },
     }
 
@@ -285,7 +285,7 @@ def calc_move_near_stats(root_result_dir):
         # "rt-1-x": 0.45,
         # "rt-1-begin": 0.017,
         # "octo-base": 0.35,
-        "medit": 0,
+        "custom": 0,
     }
 
     ckpt_alias_keys = list(move_near_real_success.keys())
@@ -417,7 +417,7 @@ def calc_drawer_stats(root_result_dir):
             # "rt-1-x": 0.519,
             # "rt-1-begin": 0.000,
             # "octo-base": 0.148,
-            "medit": 0,
+            "custom": 0,
         },
         "close": {
             # "rt-2-x": 0.630,
@@ -426,7 +426,7 @@ def calc_drawer_stats(root_result_dir):
             # "rt-1-x": 0.741,
             # "rt-1-begin": 0.000,
             # "octo-base": 0.519,
-            "medit": 0,
+            "custom": 0,
         },
     }
 
@@ -648,7 +648,7 @@ def calc_long_horizon_apple_in_drawer_stats(root_result_dir):
             # "rt-1-x": 0.407,
             # "rt-1-begin": 0.000,
             # "octo-base": 0.000,
-            "medit": 0,
+            "custom": 0,
         },
     }
 
@@ -862,25 +862,25 @@ def calc_bridge_put_on_env_stats(root_result_dir):
             # "rt-1-x": 0.042,
             # "octo-base": 0.500,
             # "octo-small": 0.542,
-            "medit": 0.000,
+            "custom": 0.000,
         },
         "put_carrot_on_plate": {
             # "rt-1-x": 0.167,
             # "octo-base": 0.500,
             # "octo-small": 0.208,
-            "medit": 0.000,
+            "custom": 0.000,
         },
         "stack_green_block_on_yellow_block": {
             # "rt-1-x": 0.000,
             # "octo-base": 0.292,
             # "octo-small": 0.583,
-            "medit": 0.000,
+            "custom": 0.000,
         },
         "put_eggplant_in_basket": {
             # "rt-1-x": 0.000,
             # "octo-base": 0.400,
             # "octo-small": 0.600,
-            "medit": 0.000,
+            "custom": 0.000,
         },
     }
     real_success_dict = {
@@ -888,25 +888,25 @@ def calc_bridge_put_on_env_stats(root_result_dir):
             # "rt-1-x": 0.000,
             # "octo-base": 0.333,
             # "octo-small": 0.417,
-            "medit": 0.000,
+            "custom": 0.000,
         },
         "put_carrot_on_plate": {
             # "rt-1-x": 0.00,
             # "octo-base": 0.25,
             # "octo-small": 0.083,
-            "medit": 0.000,
+            "custom": 0.000,
         },
         "stack_green_block_on_yellow_block": {
             # "rt-1-x": 0.000,
             # "octo-base": 0.000,
             # "octo-small": 0.125,
-            "medit": 0.000,
+            "custom": 0.000,
         },
         "put_eggplant_in_basket": {
             # "rt-1-x": 0.000,
             # "octo-base": 0.250,
             # "octo-small": 0.400,
-            "medit": 0.000,
+            "custom": 0.000,
         },
     }
 
@@ -1042,17 +1042,23 @@ CKPT_MAPPING = {
     # "octo-base": "octo-base",
     # "octo-small": "octo-small",
     # "octo-server": "octo-server",
-    # "medit": "checkpoint_276000",
-    # "medit": "lower_lr",
-    # "medit": "checkpoint_152000",
-    "medit": "checkpoint_150000",
+    # "custom": "checkpoint_276000",
+    # "custom": "lower_lr",
+    # "custom": "checkpoint_152000",
+    # "custom": "checkpoint_150000",
+    # "flower": "checkpoint_260000",
+    # "custom": "checkpoint_260000",
 }
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", type=str, default="pick_coke_can", help="task name")
 parser.add_argument("--log-dir-root", type=str, default="./results/", help="log directory")
+parser.add_argument("--ckpt", type=str, default=None, help="checkpoint")
 
 args = parser.parse_args()
+
+if args.ckpt is not None:
+    CKPT_MAPPING["custom"] = args.ckpt
 
 if args.task == "pick_coke_can":
     calc_pick_coke_can_stats(args.log_dir_root)
